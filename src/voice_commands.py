@@ -1,26 +1,7 @@
-import discord, yt_dlp
-from discord.ext import commands
+from .songs_queue import SongsQueue
+from .bot import *
 
-intents = discord.Intents.default()
-intents.message_content = True
-bot = commands.Bot(command_prefix='$', intents=intents)
-
-song_queue = []
-
-@bot.event
-async def on_ready():
-    print('Bot is ready to use!')
-
-@bot.command()
-async def prefix(ctx: commands.Context, prefix):
-    """
-    Changes used prefix
-    """
-    if len(prefix) > 2:
-        return await ctx.send(f'{ctx.author.mention} Prefix cannot be longer than 2 characters!')
-
-    bot.command_prefix = prefix
-    await ctx.send(f'{ctx.author.mention} Prefix has been changed to `{prefix}`.')
+queue = SongsQueue()
 
 @bot.command()
 async def join(ctx: commands.Context):
@@ -42,22 +23,22 @@ async def leave(ctx: commands.Context):
         await ctx.voice_client.disconnect()
 
 @bot.command()
-async def play(ctx: commands.Context, url):
+async def play(ctx: commands.Context, url: str):
     """
-    Adds song to queue
+    Adds song to queue and plays it
     """
+    song = queue.add(url)
+
+    await ctx.send(f'Added `{song}`')
+
     voice_client: None | discord.VoiceClient = ctx.voice_client
 
     if voice_client is None:
         channel = ctx.author.voice.channel
         voice_client = await channel.connect()
 
-    ydl_opts = {'format': 'bestaudio/best'}
-
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
-        await ctx.send(f'Playing {url}')
-        voice_client.play(discord.FFmpegPCMAudio(info['url']))
+    if not voice_client.is_paused() and not voice_client.is_playing():
+        queue.play(voice_client)
 
 @bot.command()
 async def pause(ctx: commands.Context):
@@ -90,18 +71,49 @@ async def resume(ctx: commands.Context):
     voice_client.resume()
 
 @bot.command()
-async def next(ctx: commands.Context):
+async def skip(ctx: commands.Context):
     """
     Skips current song
     """
+    voice_client: None | discord.VoiceClient = ctx.voice_client
+
+    if voice_client is None:
+        return await ctx.send(f'{ctx.author.mention} Bot needs to be connected to voice channel to skip song!')
+
+    if not voice_client.is_paused() and not voice_client.is_playing():
+        return await ctx.send(f'{ctx.author.mention} No song to skip.')
+
+    voice_client.stop()
     await ctx.send('Current song has been skipped.')
+
+    if len(queue.get()) >= 1:
+        queue.play(voice_client)
+
+@bot.command()
+async def remove(ctx: commands.Context, title: str):
+    """
+    Removes song from queue
+    """
+    for song in queue.get():
+        if song['title'] == title:
+            queue.remove(song)
+            return await ctx.send(f'Removed `{title}` from queue.')
+
+    await ctx.send(f'Song `{title}` not found in queue.')
 
 @bot.command()
 async def clear(ctx: commands.Context):
     """
     Clears song queue
     """
-    song_queue.clear()
+    voice_client: None | discord.VoiceClient = ctx.voice_client
+
+    if voice_client is None:
+        return await ctx.send(f'{ctx.author.mention} Bot needs to be connected to voice channel to clear queue!')
+
+    voice_client.stop()
+    queue.clear()
+
     await ctx.send('Song queue has been cleared.')
 
 @bot.command()
@@ -109,19 +121,5 @@ async def list(ctx: commands.Context):
     """
     Lists all queued songs
     """
-    await ctx.send(f'Current songs list: {song_queue}')
-
-@bot.command()
-async def purge(ctx: commands.Context, count: str):
-    """
-    Deletes messages from chat
-    """
-    if not count.isnumeric():
-        return await ctx.send(f'{ctx.author.mention} You need to provide valid number.')
-
-    count = int(count)
-
-    if count < 1 or count > 100:
-        return await ctx.send(f'{ctx.author.mention} You need to provide number between 1 and 100.')
-
-    await ctx.channel.purge(limit=count)
+    songs_list: str = ''.join([f'\n- `{song["title"]}`' for song in queue.get()])
+    await ctx.send(f'Current songs list:' + songs_list)
