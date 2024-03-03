@@ -1,7 +1,7 @@
 from discord.ext import commands
 
 async def _predicate_voice_connection(ctx: commands.Context):
-    if ctx.voice_client is None:
+    if ctx.voice_client is None and ctx.invoked_with != 'help':
         await ctx.send(f'{ctx.author.mention} Bot needs to be connected to voice channel.')
         return False
 

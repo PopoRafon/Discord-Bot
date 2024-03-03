@@ -1,13 +1,32 @@
-from discord import VoiceChannel, VoiceClient
+from discord import VoiceChannel, VoiceClient, Member, VoiceState
 from discord.ext import commands
 from .songs_queue import SongsQueue
 from .checks import is_connected_to_voice
+import asyncio, random
 
 
 class Voice(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot: commands.Bot = bot
         self.queue: SongsQueue = SongsQueue()
+        self.voice_client: VoiceClient | None = None
+        self.timeout: int = 60
+        self.timeout_task: asyncio.Task | None = None
+
+    async def timeout_voice_channel(self):
+        await asyncio.sleep(self.timeout)
+        await self.voice_client.disconnect()
+
+    @commands.Cog.listener()
+    async def on_voice_state_update(self, member: Member, before: VoiceState, after: VoiceState):
+        if self.voice_client:
+            channel_members_count = len(self.voice_client.channel.members)
+
+            if not self.timeout_task and channel_members_count == 1:
+                self.timeout_task = self.bot.loop.create_task(self.timeout_voice_channel())
+            elif self.timeout_task and channel_members_count > 1:
+                self.timeout_task.cancel()
+                self.timeout_task = None
 
     @commands.command()
     async def join(self, ctx: commands.Context):
@@ -18,8 +37,8 @@ class Voice(commands.Cog):
             return await ctx.send(f'{ctx.author.mention} You need to be connected to voice channel to use this command!')
 
         channel: VoiceChannel = ctx.author.voice.channel
-
         await channel.connect()
+        self.voice_client = ctx.voice_client
 
     @commands.command()
     @is_connected_to_voice
@@ -27,8 +46,10 @@ class Voice(commands.Cog):
         """
         Disconnects from current channel
         """
-        if ctx.voice_client is not None:
-            await ctx.voice_client.disconnect()
+        if self.voice_client is not None:
+            await self.voice_client.disconnect()
+            self.voice_client = None
+            self.queue.clear()
 
     @commands.command()
     @is_connected_to_voice
@@ -40,7 +61,6 @@ class Voice(commands.Cog):
         """
         Adds song to queue and plays it
         """
-        voice_client: VoiceClient = ctx.voice_client
         song: str | None = self.queue.add(url)
 
         if not song:
@@ -48,8 +68,8 @@ class Voice(commands.Cog):
 
         await ctx.send(f'Added `{song}`.')
 
-        if not voice_client.is_paused() and not voice_client.is_playing():
-            self.queue.play(voice_client)
+        if not self.voice_client.is_paused() and not self.voice_client.is_playing():
+            self.queue.play(self.voice_client)
 
     @commands.command()
     @is_connected_to_voice
@@ -57,12 +77,10 @@ class Voice(commands.Cog):
         """
         Pauses current song
         """
-        voice_client: VoiceClient = ctx.voice_client
-
-        if voice_client.is_paused():
+        if self.voice_client.is_paused():
             return await ctx.send(f'{ctx.author.mention} Song is already paused.')
 
-        voice_client.pause()
+        self.voice_client.pause()
 
     @commands.command()
     @is_connected_to_voice
@@ -70,12 +88,10 @@ class Voice(commands.Cog):
         """
         Resumes current song
         """
-        voice_client: VoiceClient = ctx.voice_client
-
-        if voice_client.is_playing():
+        if self.voice_client.is_playing():
             return await ctx.send(f'{ctx.author.mention} Song is already resumed.')
 
-        voice_client.resume()
+        self.voice_client.resume()
 
     @commands.command()
     @is_connected_to_voice
@@ -83,17 +99,12 @@ class Voice(commands.Cog):
         """
         Skips current song
         """
-        voice_client: VoiceClient = ctx.voice_client
-
-        if not voice_client.is_paused() and not voice_client.is_playing():
+        if not self.voice_client.is_paused() and not self.voice_client.is_playing():
             return await ctx.send(f'{ctx.author.mention} No song to skip.')
 
-        voice_client.stop()
+        self.voice_client.stop()
 
         await ctx.send('Current song has been skipped.')
-
-        if len(self.queue.get_queue()) >= 1:
-            self.queue.play(voice_client)
 
     @commands.command()
     @is_connected_to_voice
@@ -116,9 +127,7 @@ class Voice(commands.Cog):
         """
         Clears song queue
         """
-        voice_client: VoiceClient = ctx.voice_client
-
-        voice_client.stop()
+        self.voice_client.stop()
         self.queue.clear()
 
         await ctx.send('Song queue has been cleared.')
@@ -163,6 +172,16 @@ class Voice(commands.Cog):
         self.queue.move(from_index, to_index)
 
         await ctx.send(f'Moved song from position {from_index} to {to_index} position.')
+
+    @commands.command()
+    @is_connected_to_voice
+    async def shuffle(self, ctx: commands.Context):
+        """
+        Shuffles randomly all songs from queue
+        """
+        random.shuffle(self.queue.get_queue())
+
+        await ctx.send('Songs queue has been shuffled.')
 
     @commands.command()
     @is_connected_to_voice
