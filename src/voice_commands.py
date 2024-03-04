@@ -56,17 +56,18 @@ class Voice(commands.Cog):
     async def play(
         self,
         ctx: commands.Context,
-        url: str = commands.parameter(description='Either direct url or name of the song to be played')
+        *,
+        track: str = commands.parameter(description='Either direct url or name of the song to be played')
     ):
         """
         Adds song to queue and plays it
         """
-        song: str | None = self.queue.add(url)
+        title: str | None = self.queue.add(track)
 
-        if not song:
+        if not title:
             return await ctx.send('Song couldn\'t be added.')
 
-        await ctx.send(f'Added `{song}`.')
+        await ctx.send(f'Added `{title}`.')
 
         if not self.voice_client.is_paused() and not self.voice_client.is_playing():
             self.queue.play(self.voice_client)
@@ -111,6 +112,7 @@ class Voice(commands.Cog):
     async def remove(
         self,
         ctx: commands.Context,
+        *,
         title: str = commands.parameter(description='Must be exactly the same as the title displayed in $list command')
     ):
         """
@@ -137,21 +139,21 @@ class Voice(commands.Cog):
     async def insert(
         self,
         ctx: commands.Context,
-        url: str = commands.parameter(description='Either direct url or name of the song to be played'),
+        track: str = commands.parameter(description='Either direct url or name of the song to be played'),
         index: int = commands.parameter(description='Index before which song to insert this song')
     ):
         """
         Inserts song to queue at specified index
         """
-        if index < 0 or index >= len(self.queue.get_queue()):
+        if index < 1 or index > len(self.queue.get_queue()):
             return await ctx.send(f'{ctx.author.mention} Index is out of queue boundaries.')
 
-        song: str | None = self.queue.insert(url, index)
+        title: str | None = self.queue.insert(track, index - 1)
 
-        if not song:
+        if not title:
             return await ctx.send('Song couldn\'t be inserted.')
 
-        await ctx.send(f'Inserted `{song}` at position {index}.')
+        await ctx.send(f'Inserted `{title}` at position {index}.')
 
     @commands.command()
     @is_connected_to_voice
@@ -166,10 +168,10 @@ class Voice(commands.Cog):
         """
         queue_length: int = len(self.queue.get_queue())
 
-        if from_index < 0 or to_index < 0 or from_index >= queue_length or to_index >= queue_length:
+        if from_index < 1 or to_index < 1 or from_index > queue_length or to_index > queue_length:
             return await ctx.send(f'{ctx.author.mention} Positions are out of queue boundaries.')
 
-        self.queue.move(from_index, to_index)
+        self.queue.move(from_index - 1, to_index - 1)
 
         await ctx.send(f'Moved song from position {from_index} to {to_index} position.')
 

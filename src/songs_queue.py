@@ -5,20 +5,37 @@ import discord, requests, re, yt_dlp
 class SongsQueue:
     def __init__(self) -> None:
         self.__queue: list[dict[str, str]] = []
-        self.__ydl_opts: dict[str, str] = {'format': 'bestaudio/best'}
         self.__current_song: dict[str, str] = {}
         self.__repeat: bool = False
+        self.__ydl_opts: dict[str, str] = {
+            'format': 'bestaudio/best',
+            'ignoreerrors': True,
+            'abort_on_unavailable_fragments': True
+        }
 
-    def __extract_song(self, url: str) -> dict[str, Any]:
+    def __extract_song(self, track: str) -> dict[str, Any]:
         """
-        Extracts song from given url and returns info about that song.
+        Extracts song from given track name or url.
+        Returns info about that song.
         """
-        response: requests.Response = requests.get(f'https://youtube.com/results?search_query={url}')
-        content: str = response.content.decode()
-        videos: list[str] = re.findall(r'/watch[?]v=([0-9a-zA-Z-_]*)', content)
+        if track.startswith('https://www.youtube.com/watch?v='):
+            url: str = track
+        else:
+            response: requests.Response = requests.get(f'https://youtube.com/results?search_query={track}')
+            content: str = response.content.decode()
+            videos: list[str] = re.findall(r'/watch\?v=([\w-]*)', content)
+            url: str = videos[0]
 
         with yt_dlp.YoutubeDL(self.__ydl_opts) as ydl:
-            return ydl.extract_info(videos[0], download=False)
+            return ydl.extract_info(url, download=False)
+
+    def __extract_playlist(self, playlist: str) -> dict[str, Any]:
+        """
+        Extracts all songs from given playlist url.
+        Returns info about that playlist.
+        """
+        with yt_dlp.YoutubeDL(self.__ydl_opts) as ydl:
+            return ydl.extract_info(playlist, download=False)
 
     def play(self, voice_client: discord.VoiceClient) -> None:
         """
@@ -37,21 +54,23 @@ class SongsQueue:
 
             voice_client.play(discord.FFmpegPCMAudio(self.__current_song['url'], before_options=before_options), after=lambda x: self.play(voice_client))
 
-    def add(self, url: str) -> str | None:
+    def add(self, track: str) -> str:
         """
-        Adds song from given url to queue.
-        Returns `None` if song can't be added otherwise returns this song title.
+        Adds song from given track url or title to queue.
+        Returns this song title.
         """
-        song: dict[str, Any] = self.__extract_song(url)
-        title: str = song.get('title')
-        url: str = song.get('url')
+        if re.match(r'(https:\/\/w{3}\.|w{3}\.|)youtube.com/.*list=', track):
+            playlist: dict[str, Any] = self.__extract_playlist(track)
 
-        if url and title:
-            self.__queue.append({'title': title, 'url': url})
+            for song in playlist['entries']:
+                self.__queue.append({'title': song['title'], 'url': song['url']})
 
-            return title
+            return playlist['title']
         else:
-            return None
+            song: dict[str, Any] = self.__extract_song(track)
+            self.__queue.append({'title': song['title'], 'url': song['url']})
+
+            return song['title']
 
     def move(self, from_index: int, to_index: int) -> None:
         """
@@ -71,21 +90,23 @@ class SongsQueue:
 
         return None
 
-    def insert(self, url: str, index: int) -> str | None:
+    def insert(self, track: str, index: int) -> str:
         """
-        Inserts song into queue at provided index from given url.
-        Returns `None` if song can't be inserted otherwise returns this song title.
+        Inserts song into queue at provided index from given track name or url.
+        Returns this song title.
         """
-        song: dict[str, Any] = self.__extract_song(url)
-        title: str = song.get('title')
-        url: str = song.get('url')
+        if re.match(r'(https:\/\/w{3}\.|w{3}\.|)youtube.com/.*list=', track):
+            playlist: dict[str, Any] = self.__extract_playlist(track)
 
-        if url and title:
-            self.__queue.insert(index, {'title': title, 'url': url})
+            for song in playlist['entries'][::-1]:
+                self.__queue.insert(index, {'title': song['title'], 'url': song['url']})
 
-            return title
+            return playlist['title']
         else:
-            return None
+            song: dict[str, Any] = self.__extract_song(track)
+            self.__queue.insert(index, {'title': song['title'], 'url': song['url']})
+
+            return song['title']
 
     def get_queue(self) -> list[dict[str, str]]:
         """
