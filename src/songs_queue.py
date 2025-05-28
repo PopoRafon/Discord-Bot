@@ -10,7 +10,9 @@ class SongsQueue:
         self.__ydl_opts: dict[str, str] = {
             'format': 'bestaudio/best',
             'ignoreerrors': True,
-            'abort_on_unavailable_fragments': True
+            'abort_on_unavailable_fragments': True,
+            'age_limit': 25,
+            'cookiefile': 'cookies.txt'
         }
 
     def __extract_song(self, track: str) -> dict[str, Any]:
